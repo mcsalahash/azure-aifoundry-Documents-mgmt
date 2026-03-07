@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Azure AI Foundry - Gestion de Documents</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="6" fill="#0078D4"/>
+          <path d="M8 22L14 10L20 18L24 14L28 22H8Z" fill="white" opacity="0.9"/>
+          <circle cx="14" cy="10" r="2" fill="#50E6FF"/>
+        </svg>
+        <span>Azure AI Foundry</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="document-intelligence">Document Intelligence</button>
+        <button class="nav-btn" data-tab="ai-language">AI Language</button>
+        <button class="nav-btn" data-tab="openai">Azure OpenAI</button>
+        <button class="nav-btn" data-tab="vision">Computer Vision</button>
+        <button class="nav-btn" data-tab="translator">Translator</button>
+        <button class="nav-btn" data-tab="safety">Content Safety</button>
+        <button class="nav-btn" data-tab="search">AI Search</button>
+        <button class="nav-btn" data-tab="pipeline">Pipeline Complet</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ── Document Intelligence ── -->
+    <section id="tab-document-intelligence" class="tab active">
+      <div class="tab-header">
+        <h2>Document Intelligence <span class="badge blue">AI-102</span></h2>
+        <p>Extrayez du texte, des tableaux et des paires clé-valeur depuis vos documents avec les modèles pré-construits d'Azure AI Document Intelligence.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Analyser un document</h3>
+          <form id="form-doc-analyze">
+            <label>Fichier (PDF, DOCX, image)
+              <input type="file" name="file" accept=".pdf,.docx,.png,.jpg,.jpeg,.tiff" required />
+            </label>
+            <label>Modèle
+              <select name="model_id">
+                <option value="prebuilt-read">Read — Extraction de texte générale</option>
+                <option value="prebuilt-layout">Layout — Texte + tableaux + structure</option>
+                <option value="prebuilt-invoice">Invoice — Factures</option>
+                <option value="prebuilt-receipt">Receipt — Reçus</option>
+                <option value="prebuilt-idDocument">ID Document — Pièces d'identité</option>
+                <option value="prebuilt-businessCard">Business Card — Cartes de visite</option>
+              </select>
+            </label>
+            <button type="submit" class="btn btn-primary">Analyser</button>
+          </form>
+        </div>
+        <div class="card result-card">
+          <h3>Résultats</h3>
+          <div id="result-doc-analyze" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── AI Language ── -->
+    <section id="tab-ai-language" class="tab">
+      <div class="tab-header">
+        <h2>Azure AI Language <span class="badge green">AI-102</span></h2>
+        <p>Analyse NLP complète: détection de langue, sentiment, entités (NER), PII, résumé extractif et abstractif.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Analyse NLP complète</h3>
+          <form id="form-nlp">
+            <label>Texte à analyser
+              <textarea name="text" rows="6" placeholder="Saisissez votre texte ici..." required></textarea>
+            </label>
+            <label>Opérations
+              <div class="checkbox-group">
+                <label><input type="checkbox" name="ops" value="language_detection" checked /> Détection de langue</label>
+                <label><input type="checkbox" name="ops" value="sentiment" checked /> Analyse de sentiment</label>
+                <label><input type="checkbox" name="ops" value="key_phrases" checked /> Phrases clés</label>
+                <label><input type="checkbox" name="ops" value="entities" checked /> Entités (NER)</label>
+                <label><input type="checkbox" name="ops" value="pii" /> Détection PII</label>
+                <label><input type="checkbox" name="ops" value="summary" /> Résumé</label>
+              </div>
+            </label>
+            <button type="submit" class="btn btn-primary">Analyser</button>
+          </form>
+        </div>
+        <div class="card result-card">
+          <h3>Résultats NLP</h3>
+          <div id="result-nlp" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Azure OpenAI ── -->
+    <section id="tab-openai" class="tab">
+      <div class="tab-header">
+        <h2>Azure OpenAI <span class="badge purple">AI-102</span></h2>
+        <p>Q&A sur document (RAG), génération de documents, classification et résumé avec GPT-4o.</p>
+      </div>
+      <div class="tabs-inner">
+        <div class="inner-tab-bar">
+          <button class="inner-tab-btn active" data-inner="qa">Q&A Document</button>
+          <button class="inner-tab-btn" data-inner="generate">Générer Document</button>
+          <button class="inner-tab-btn" data-inner="classify">Classifier</button>
+        </div>
+
+        <div id="inner-qa" class="inner-tab active">
+          <div class="card-grid">
+            <div class="card">
+              <h3>Q&A sur document (RAG)</h3>
+              <form id="form-qa">
+                <label>Contenu du document
+                  <textarea name="document_context" rows="5" placeholder="Collez le texte de votre document ici..." required></textarea>
+                </label>
+                <label>Votre question
+                  <input type="text" name="question" placeholder="Quelle est la date d'échéance ?" required />
+                </label>
+                <button type="submit" class="btn btn-primary">Poser la question</button>
+              </form>
+            </div>
+            <div class="card result-card">
+              <h3>Réponse IA</h3>
+              <div id="result-qa" class="result-area">Aucun résultat.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="inner-generate" class="inner-tab">
+          <div class="card-grid">
+            <div class="card">
+              <h3>Générer un document</h3>
+              <form id="form-generate">
+                <label>Type de document
+                  <select name="document_type">
+                    <option value="contrat de prestation">Contrat de prestation</option>
+                    <option value="rapport d'analyse">Rapport d'analyse</option>
+                    <option value="lettre professionnelle">Lettre professionnelle</option>
+                    <option value="cahier des charges">Cahier des charges</option>
+                    <option value="résumé exécutif">Résumé exécutif</option>
+                    <option value="note interne">Note interne</option>
+                  </select>
+                </label>
+                <label>Instructions détaillées
+                  <textarea name="instructions" rows="5" placeholder="Décrivez le contenu attendu..." required></textarea>
+                </label>
+                <label>Langue
+                  <select name="language">
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                  </select>
+                </label>
+                <button type="submit" class="btn btn-primary">Générer</button>
+              </form>
+            </div>
+            <div class="card result-card">
+              <h3>Document généré</h3>
+              <div id="result-generate" class="result-area markdown-preview">Aucun résultat.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="inner-classify" class="inner-tab">
+          <div class="card-grid">
+            <div class="card">
+              <h3>Classifier un document</h3>
+              <form id="form-classify">
+                <label>Texte du document
+                  <textarea name="text" rows="8" placeholder="Collez le texte de votre document..." required></textarea>
+                </label>
+                <button type="submit" class="btn btn-primary">Classifier</button>
+              </form>
+            </div>
+            <div class="card result-card">
+              <h3>Classification</h3>
+              <div id="result-classify" class="result-area">Aucun résultat.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Computer Vision ── -->
+    <section id="tab-vision" class="tab">
+      <div class="tab-header">
+        <h2>Azure AI Vision <span class="badge orange">AI-102</span></h2>
+        <p>Analyse d'images: OCR, légendes, détection d'objets, personnes et tags.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Analyser une image</h3>
+          <form id="form-vision">
+            <label>Image (PNG, JPG, TIFF)
+              <input type="file" name="file" accept=".png,.jpg,.jpeg,.tiff,.webp" required />
+              <div id="vision-preview" class="image-preview"></div>
+            </label>
+            <label>Fonctionnalités à analyser
+              <div class="checkbox-group">
+                <label><input type="checkbox" name="features" value="Caption" checked /> Légende</label>
+                <label><input type="checkbox" name="features" value="DenseCaptions" /> Légendes détaillées</label>
+                <label><input type="checkbox" name="features" value="Tags" checked /> Tags</label>
+                <label><input type="checkbox" name="features" value="Objects" /> Objets</label>
+                <label><input type="checkbox" name="features" value="People" /> Personnes</label>
+                <label><input type="checkbox" name="features" value="Read" checked /> OCR (texte)</label>
+              </div>
+            </label>
+            <button type="submit" class="btn btn-primary">Analyser</button>
+          </form>
+        </div>
+        <div class="card result-card">
+          <h3>Résultats Vision</h3>
+          <div id="result-vision" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Translator ── -->
+    <section id="tab-translator" class="tab">
+      <div class="tab-header">
+        <h2>Azure AI Translator <span class="badge teal">AI-102</span></h2>
+        <p>Traduction multilingue, détection de langue et dictionnaire bilingue.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Traduire un texte</h3>
+          <form id="form-translate">
+            <label>Texte source
+              <textarea name="text" rows="5" placeholder="Texte à traduire..." required></textarea>
+            </label>
+            <label>Langues cibles
+              <div class="checkbox-group">
+                <label><input type="checkbox" name="targets" value="en" checked /> Anglais</label>
+                <label><input type="checkbox" name="targets" value="es" /> Espagnol</label>
+                <label><input type="checkbox" name="targets" value="de" /> Allemand</label>
+                <label><input type="checkbox" name="targets" value="ar" /> Arabe</label>
+                <label><input type="checkbox" name="targets" value="zh-Hans" /> Chinois simplifié</label>
+                <label><input type="checkbox" name="targets" value="pt" /> Portugais</label>
+              </div>
+            </label>
+            <button type="submit" class="btn btn-primary">Traduire</button>
+          </form>
+        </div>
+        <div class="card result-card">
+          <h3>Traductions</h3>
+          <div id="result-translate" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Content Safety ── -->
+    <section id="tab-safety" class="tab">
+      <div class="tab-header">
+        <h2>Azure AI Content Safety <span class="badge red">AI-102</span></h2>
+        <p>Modération de contenu: détection de haine, violence, contenu sexuel et automutilation.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Analyser la sécurité du contenu</h3>
+          <form id="form-safety">
+            <label>Texte à modérer
+              <textarea name="text" rows="6" placeholder="Saisissez le texte à analyser..." required></textarea>
+            </label>
+            <div class="info-box">
+              <strong>Niveaux de sévérité:</strong>
+              <ul>
+                <li>0 — Sûr</li>
+                <li>2 — Faible</li>
+                <li>4 — Moyen</li>
+                <li>6 — Élevé</li>
+              </ul>
+            </div>
+            <button type="submit" class="btn btn-primary">Analyser</button>
+          </form>
+        </div>
+        <div class="card result-card">
+          <h3>Résultats de modération</h3>
+          <div id="result-safety" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── AI Search ── -->
+    <section id="tab-search" class="tab">
+      <div class="tab-header">
+        <h2>Azure AI Search <span class="badge indigo">AI-102</span></h2>
+        <p>Recherche sémantique et vectorielle sur vos documents indexés.</p>
+      </div>
+      <div class="tabs-inner">
+        <div class="inner-tab-bar">
+          <button class="inner-tab-btn active" data-inner="search-query">Rechercher</button>
+          <button class="inner-tab-btn" data-inner="search-index">Indexer un document</button>
+        </div>
+
+        <div id="inner-search-query" class="inner-tab active">
+          <div class="card-grid">
+            <div class="card">
+              <h3>Recherche intelligente</h3>
+              <form id="form-search">
+                <label>Requête de recherche
+                  <input type="text" name="query" placeholder="Rechercher dans vos documents..." required />
+                </label>
+                <label>
+                  <input type="checkbox" name="semantic" checked /> Recherche sémantique (classement neuronal)
+                </label>
+                <label>Nombre de résultats
+                  <input type="number" name="top" value="5" min="1" max="20" />
+                </label>
+                <button type="submit" class="btn btn-primary">Rechercher</button>
+              </form>
+            </div>
+            <div class="card result-card">
+              <h3>Résultats de recherche</h3>
+              <div id="result-search" class="result-area">Aucun résultat.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="inner-search-index" class="inner-tab">
+          <div class="card-grid">
+            <div class="card">
+              <h3>Indexer un document</h3>
+              <form id="form-index">
+                <label>ID du document
+                  <input type="text" name="document_id" placeholder="doc-001" required />
+                </label>
+                <label>Titre
+                  <input type="text" name="title" placeholder="Titre du document" required />
+                </label>
+                <label>Contenu
+                  <textarea name="content" rows="5" placeholder="Contenu du document..." required></textarea>
+                </label>
+                <label>Langue
+                  <select name="language">
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+                <button type="submit" class="btn btn-primary">Indexer</button>
+              </form>
+            </div>
+            <div class="card result-card">
+              <h3>Résultat d'indexation</h3>
+              <div id="result-index" class="result-area">Aucun résultat.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Pipeline Complet ── -->
+    <section id="tab-pipeline" class="tab">
+      <div class="tab-header">
+        <h2>Pipeline d'Analyse Complet <span class="badge gold">AI-102</span></h2>
+        <p>Uploadez un document et déclenchez le pipeline complet: extraction de texte, NLP, classification, sécurité et résumé.</p>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <h3>Analyser un fichier complet</h3>
+          <form id="form-pipeline">
+            <label>Fichier (PDF, DOCX, TXT)
+              <input type="file" name="file" accept=".pdf,.docx,.txt" required />
+            </label>
+            <div class="checkbox-group">
+              <label><input type="checkbox" name="run_nlp" value="true" checked /> Analyse NLP</label>
+              <label><input type="checkbox" name="run_classification" value="true" checked /> Classification</label>
+              <label><input type="checkbox" name="run_safety" value="true" checked /> Sécurité du contenu</label>
+              <label><input type="checkbox" name="run_summary" value="true" checked /> Résumé</label>
+            </div>
+            <button type="submit" class="btn btn-primary btn-large">Lancer le pipeline</button>
+          </form>
+        </div>
+        <div class="card result-card wide">
+          <h3>Rapport d'analyse complet</h3>
+          <div id="result-pipeline" class="result-area">Aucun résultat.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast notifications -->
+  <div id="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
