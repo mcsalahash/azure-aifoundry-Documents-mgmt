@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from azure.core.exceptions import HttpResponseError
+from azure.core.exceptions import HttpResponseError, ServiceRequestError as AzureConnectionError
 from openai import APIError as OpenAIAPIError
 import httpx
 import os
@@ -107,26 +107,38 @@ async def azure_http_error_handler(request: Request, exc: HttpResponseError):
 
 @app.exception_handler(OpenAIAPIError)
 async def openai_error_handler(request: Request, exc: OpenAIAPIError):
-    status = exc.status_code or 502
-    # DeploymentNotFound ou ressource introuvable → 502 (pas 404 trompeur)
+    # APIConnectionError n'a pas status_code → utiliser getattr avec fallback
+    status = getattr(exc, "status_code", None) or 502
     http_status = 502 if status == 404 else status
-    logger.error(
-        "Azure OpenAI error on %s: [%s] %s",
-        request.url.path,
-        exc.code or status,
-        str(exc),
-    )
+    code = getattr(exc, "code", None)
+    is_connection = type(exc).__name__ == "APIConnectionError"
+    logger.error("Azure OpenAI error on %s: [%s] %s", request.url.path, code or status, str(exc))
     return JSONResponse(
         status_code=http_status,
         content={
-            "detail": str(exc.message) if hasattr(exc, "message") else str(exc),
-            "azure_error_code": exc.code,
+            "detail": str(exc),
+            "azure_error_code": code,
             "hint": (
+                "Impossible de joindre Azure OpenAI — vérifiez AZURE_OPENAI_ENDPOINT dans .env "
+                f"(attendu: https://<nom>.openai.azure.com/)"
+            ) if is_connection else (
                 "Vérifiez AZURE_OPENAI_CHAT_DEPLOYMENT dans .env — "
                 "le nom doit correspondre exactement au déploiement dans Azure Portal."
-            ) if (exc.code and "DeploymentNotFound" in str(exc.code)) else (
+            ) if (code and "DeploymentNotFound" in str(code)) else (
                 "Vérifiez AZURE_OPENAI_ENDPOINT et AZURE_OPENAI_API_KEY dans .env."
             ) if status in (401, 403, 404) else None,
+        },
+    )
+
+
+@app.exception_handler(AzureConnectionError)
+async def azure_connection_error_handler(request: Request, exc: AzureConnectionError):
+    logger.error("Azure connection error on %s: %s", request.url.path, str(exc))
+    return JSONResponse(
+        status_code=502,
+        content={
+            "detail": str(exc),
+            "hint": "Impossible de joindre le service Azure — vérifiez l'endpoint et la clé dans .env",
         },
     )
 
@@ -144,6 +156,19 @@ async def httpx_error_handler(request: Request, exc: httpx.HTTPStatusError):
     return JSONResponse(
         status_code=http_status,
         content={"detail": str(exc), "hint": hint},
+    )
+
+
+@app.exception_handler(httpx.ConnectError)
+@app.exception_handler(httpx.TimeoutException)
+async def httpx_connection_error_handler(request: Request, exc: Exception):
+    logger.error("HTTP connection error on %s: %s", request.url.path, str(exc))
+    return JSONResponse(
+        status_code=502,
+        content={
+            "detail": str(exc),
+            "hint": "Impossible de joindre le service — vérifiez l'endpoint et la clé dans .env",
+        },
     )
 
 
