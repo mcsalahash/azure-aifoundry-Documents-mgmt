@@ -8,6 +8,7 @@ Covers:
   - Table extraction
   - Field extraction from structured documents
 """
+import asyncio
 import logging
 from typing import Optional, Any
 from azure.ai.documentintelligence import DocumentIntelligenceClient
@@ -66,13 +67,16 @@ class DocumentIntelligenceService:
         Returns:
             Structured analysis result.
         """
-        try:
+        def _run():
             poller = self.client.begin_analyze_document(
                 model_id=model_id.value,
                 analyze_request=document_bytes,
                 content_type=content_type,
             )
-            result = poller.result()
+            return poller.result()
+
+        try:
+            result = await asyncio.to_thread(_run)
             return self._parse_result(result, model_id.value)
 
         except HttpResponseError as e:
@@ -90,12 +94,15 @@ class DocumentIntelligenceService:
         AI-102 concept: Document Intelligence can process documents from URLs
         without needing to download them locally first.
         """
-        try:
+        def _run():
             poller = self.client.begin_analyze_document(
                 model_id=model_id.value,
                 analyze_request=AnalyzeDocumentRequest(url_source=url),
             )
-            result = poller.result()
+            return poller.result()
+
+        try:
+            result = await asyncio.to_thread(_run)
             return self._parse_result(result, model_id.value)
 
         except HttpResponseError as e:

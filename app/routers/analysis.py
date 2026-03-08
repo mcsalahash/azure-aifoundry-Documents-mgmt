@@ -23,7 +23,8 @@ from app.services.ai_language import AILanguageService
 from app.services.openai_service import AzureOpenAIService
 from app.services.translation_service import TranslationService
 from app.services.content_safety import ContentSafetyService
-from app.utils.file_handler import read_upload_file, extract_text_from_pdf, extract_text_from_docx
+from app.services.vision_service import VisionService
+from app.utils.file_handler import read_upload_file, extract_text_from_pdf, extract_text_from_docx, is_image
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analysis", tags=["Text Analysis & AI Language"])
@@ -53,6 +54,13 @@ def get_translation_service() -> TranslationService:
 def get_content_safety_service() -> ContentSafetyService:
     try:
         return ContentSafetyService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+def get_vision_service() -> VisionService:
+    try:
+        return VisionService()
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -257,6 +265,7 @@ async def analyze_file_pipeline(
     language_service: AILanguageService = Depends(get_language_service),
     openai_service: AzureOpenAIService = Depends(get_openai_service),
     safety_service: ContentSafetyService = Depends(get_content_safety_service),
+    vision_service: VisionService = Depends(get_vision_service),
 ):
     content, extension = await read_upload_file(file)
 
@@ -268,10 +277,13 @@ async def analyze_file_pipeline(
         extracted_text = await extract_text_from_docx(content)
     elif extension == "txt":
         extracted_text = content.decode("utf-8", errors="ignore")
+    elif is_image(extension):
+        ocr_result = await vision_service.extract_text_from_image(content)
+        extracted_text = ocr_result.get("full_text", "")
     else:
         raise HTTPException(
-            status_code=400,
-            detail="Pipeline supports PDF, DOCX, and TXT files only",
+            status_code=415,
+            detail=f"Unsupported file type '{extension}'. Supported: PDF, DOCX, TXT, PNG, JPG, TIFF",
         )
 
     if not extracted_text:
@@ -291,6 +303,7 @@ async def analyze_file_pipeline(
         )
         pipeline_result["nlp"] = {
             "detected_language": nlp_result.detected_language,
+            "detected_language_code": nlp_result.detected_language_code,
             "sentiment": nlp_result.sentiment.sentiment if nlp_result.sentiment else None,
             "key_phrases": nlp_result.key_phrases[:10],
             "entities_count": len(nlp_result.entities),
@@ -323,7 +336,7 @@ async def analyze_file_pipeline(
     if run_summary:
         nlp_summary = await language_service.summarize_text(
             extracted_text[:5000],
-            language=pipeline_result.get("nlp", {}).get("detected_language", "fr"),
+            language=pipeline_result.get("nlp", {}).get("detected_language_code", "en"),
         )
         pipeline_result["summary"] = nlp_summary
 

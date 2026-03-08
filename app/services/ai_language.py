@@ -11,6 +11,7 @@ Covers:
   - Text summarization (abstractive & extractive)
   - Custom text classification (concept)
 """
+import asyncio
 import logging
 from typing import Optional
 from azure.ai.textanalytics import TextAnalyticsClient
@@ -84,6 +85,7 @@ class AILanguageService:
         if "language_detection" in operations or language is None:
             lang_result = await self.detect_language(text)
             response.detected_language = lang_result["language"]
+            response.detected_language_code = lang_result["iso6391_name"]
             response.language_confidence = lang_result["confidence"]
             if language is None:
                 language = lang_result["iso6391_name"]
@@ -104,11 +106,13 @@ class AILanguageService:
 
         if actions:
             try:
-                poller = self.client.begin_analyze_actions(
-                    documents=[{"id": "1", "text": text, "language": language or "en"}],
-                    actions=actions,
-                )
-                result = poller.result()
+                def _run_actions():
+                    poller = self.client.begin_analyze_actions(
+                        documents=[{"id": "1", "text": text, "language": language or "en"}],
+                        actions=actions,
+                    )
+                    return list(poller.result())
+                result = await asyncio.to_thread(_run_actions)
 
                 action_idx = 0
                 for page in result:
@@ -320,14 +324,16 @@ class AILanguageService:
         - Extractive: selects key sentences from original text
         - Abstractive: generates new summary text (uses language model)
         """
-        poller = self.client.begin_analyze_actions(
-            documents=[{"id": "1", "text": text, "language": language}],
-            actions=[
-                AbstractiveSummaryAction(sentence_count=3),
-                ExtractiveSummaryAction(sentence_count=3),
-            ],
-        )
-        result = poller.result()
+        def _run_summary():
+            poller = self.client.begin_analyze_actions(
+                documents=[{"id": "1", "text": text, "language": language}],
+                actions=[
+                    AbstractiveSummaryAction(sentence_count=3),
+                    ExtractiveSummaryAction(sentence_count=3),
+                ],
+            )
+            return list(poller.result())
+        result = await asyncio.to_thread(_run_summary)
 
         abstractive_summary = ""
         extractive_summary = ""

@@ -114,6 +114,7 @@ class PiiEntityResult(BaseModel):
 
 class LanguageAnalysisResponse(BaseModel):
     detected_language: Optional[str] = None
+    detected_language_code: Optional[str] = None  # ISO 639-1 code, e.g. "fr"
     language_confidence: Optional[float] = None
     sentiment: Optional[SentimentResult] = None
     key_phrases: list[str] = []
