@@ -77,8 +77,30 @@ Application de référence pour la certification **Microsoft AI-102**.
 
 @app.exception_handler(HttpResponseError)
 async def azure_http_error_handler(request: Request, exc: HttpResponseError):
-    status = exc.status_code if exc.status_code else 502
-    return JSONResponse(status_code=status, content={"detail": exc.message or str(exc)})
+    azure_status = exc.status_code or 502
+    # Ne pas retransmettre le 404 d'Azure comme un 404 HTTP (la route existe bien,
+    # c'est la ressource/déploiement Azure qui est introuvable → 502 Bad Gateway)
+    http_status = 502 if azure_status == 404 else azure_status
+    error_code = None
+    if hasattr(exc, "error") and exc.error:
+        error_code = getattr(exc.error, "code", None)
+    logger.error(
+        "Azure API error on %s: [%s] %s",
+        request.url.path,
+        error_code or azure_status,
+        exc.message or str(exc),
+    )
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "detail": exc.message or str(exc),
+            "azure_error_code": error_code,
+            "hint": (
+                "Vérifiez vos credentials Azure dans le fichier .env "
+                "et le nom de votre déploiement dans Azure Portal."
+            ) if azure_status == 404 else None,
+        },
+    )
 
 
 @app.exception_handler(Exception)
