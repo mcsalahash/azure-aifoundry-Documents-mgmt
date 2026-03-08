@@ -3,15 +3,11 @@ version: "3.9"
 services:
   app:
     build: .
-    ports:
-      - "8000:8000"
+    # network_mode: host → le container hérite du réseau de la VM Azure
+    # (résolution DNS Azure fonctionne, port 8000 exposé directement)
+    network_mode: host
     env_file:
       - .env
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
