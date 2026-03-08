@@ -22,7 +22,8 @@ azure-ai-contentsafety==1.0.0              # Content Safety
 # Azure Core & Identity
 azure-identity==1.19.0
 azure-core==1.32.0
-azure-storage-blob==12.24.0                # Blob Storage
+azure-keyvault-secrets==4.9.0              # Key Vault — lecture des secrets
+azure-storage-blob==12.24.0               # Blob Storage
 
 # Data processing
 pydantic==2.10.4

@@ -1,0 +1,82 @@
+# ============================================================
+# CD — Déploiement automatique vers la VM Azure
+#
+# Déclencheurs :
+#   - Push sur la branche `main`
+#   - Déclenchement manuel (workflow_dispatch)
+#
+# Secrets GitHub requis (Settings → Secrets → Actions) :
+#   VM_HOST            : IP publique ou DNS de la VM
+#   VM_USER            : utilisateur SSH (ex: azureuser)
+#   VM_SSH_PRIVATE_KEY : clé privée SSH (contenu du fichier id_rsa)
+#   AZURE_KEYVAULT_URL : URL du vault (ex: https://mon-vault.vault.azure.net/)
+# ============================================================
+
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: SSH Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Vérification du code (optionnel mais recommandé) ──────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Configuration SSH ─────────────────────────────────────────
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Ajouter la VM aux known_hosts (évite la confirmation interactive)
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ── 3. Déploiement sur la VM ─────────────────────────────────────
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" << 'ENDSSH'
+            set -euo pipefail
+
+            APP_DIR="/opt/azure-aifoundry-Documents-mgmt"
+
+            echo "==> Pull dernière version..."
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "==> Écriture du .env de production (Key Vault uniquement)..."
+            cat > "$APP_DIR/.env" << EOF
+          AZURE_KEYVAULT_URL=${{ secrets.AZURE_KEYVAULT_URL }}
+          APP_ENV=production
+          EOF
+
+            echo "==> Rebuild et redémarrage du container..."
+            docker compose up --build -d
+
+            echo "==> Nettoyage des anciennes images..."
+            docker image prune -f
+
+            echo "==> Déploiement terminé. Statut :"
+            docker compose ps
+          ENDSSH
+
+      # ── 4. Vérification de santé ─────────────────────────────────────
+      - name: Health check
+        run: |
+          echo "Attente démarrage (15s)..."
+          sleep 15
+          curl --fail --silent --max-time 10 \
+               "http://${{ secrets.VM_HOST }}:8000/health" \
+            && echo "Service OK" \
+            || (echo "Health check ECHOUE" && exit 1)
