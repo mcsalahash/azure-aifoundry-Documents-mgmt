@@ -28,8 +28,8 @@ fail() { echo -e "   ${RED}❌ $*${NC}"; }
 info() { echo -e "${CYAN}$*${NC}"; }
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-rg-ai-foundry-lab}"
-LOCATION="${AZURE_LOCATION:-eastus}"
+RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-LABAI}"
+LOCATION="${AZURE_LOCATION:-francecentral}"
 PREFIX="${AZURE_PREFIX:-ai102lab}"
 
 SUBSCRIPTION_ID=$(az account show --query id -o tsv 2>/dev/null || echo "")
@@ -59,28 +59,30 @@ create_cognitive() {
   fi
 }
 
-# ── 1. Resource Group ─────────────────────────────────────────────────────────
-info "1. Resource Group..."
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none \
-  && ok "Resource Group: $RESOURCE_GROUP" \
-  || fail "Resource Group creation failed (may already exist — continuing)"
+# ── Verify Resource Group exists ─────────────────────────────────────────────
+if ! az group show --name "$RESOURCE_GROUP" &>/dev/null; then
+  fail "Resource Group '$RESOURCE_GROUP' introuvable. Créez-le d'abord ou définissez AZURE_RESOURCE_GROUP."
+  exit 1
+fi
+ok "Resource Group: $RESOURCE_GROUP (trouvé)"
+echo ""
 
-# ── 2. Azure AI Services (multi-service — covers Vision + Language fallback) ──
-info "2. Azure AI Services (multi-service)..."
+# ── 1. Azure AI Services (multi-service — covers Vision + Language fallback) ──
+info "1. Azure AI Services (multi-service)..."
 AI_SERVICES_NAME="${PREFIX}-ai-services"
 create_cognitive "$AI_SERVICES_NAME" "CognitiveServices" "S0"
 AI_ENDPOINT=$(az cognitiveservices account show --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
 AI_KEY=$(az cognitiveservices account keys list      --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 3. Document Intelligence ──────────────────────────────────────────────────
-info "3. Document Intelligence..."
+info "2. Document Intelligence..."
 DOC_INT_NAME="${PREFIX}-doc-intel"
 create_cognitive "$DOC_INT_NAME" "FormRecognizer" "S0"
 DOC_INT_ENDPOINT=$(az cognitiveservices account show --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
 DOC_INT_KEY=$(az cognitiveservices account keys list      --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 4. Azure AI Language (Text Analytics) ─────────────────────────────────────
-info "4. Azure AI Language..."
+info "3. Azure AI Language..."
 LANGUAGE_NAME="${PREFIX}-language"
 create_cognitive "$LANGUAGE_NAME" "TextAnalytics" "S"
 LANGUAGE_ENDPOINT=$(az cognitiveservices account show --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
@@ -90,7 +92,7 @@ LANGUAGE_ENDPOINT="${LANGUAGE_ENDPOINT:-$AI_ENDPOINT}"
 LANGUAGE_KEY="${LANGUAGE_KEY:-$AI_KEY}"
 
 # ── 5. Azure AI Vision (Computer Vision) ──────────────────────────────────────
-info "5. Azure AI Vision..."
+info "4. Azure AI Vision..."
 VISION_NAME="${PREFIX}-vision"
 create_cognitive "$VISION_NAME" "ComputerVision" "S1"
 VISION_ENDPOINT=$(az cognitiveservices account show --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
@@ -100,7 +102,7 @@ VISION_ENDPOINT="${VISION_ENDPOINT:-$AI_ENDPOINT}"
 VISION_KEY="${VISION_KEY:-$AI_KEY}"
 
 # ── 6. Azure OpenAI ───────────────────────────────────────────────────────────
-info "6. Azure OpenAI..."
+info "5. Azure OpenAI..."
 OPENAI_NAME="${PREFIX}-openai"
 create_cognitive "$OPENAI_NAME" "OpenAI" "S0"
 
@@ -140,7 +142,7 @@ OPENAI_ENDPOINT=$(az cognitiveservices account show --name "$OPENAI_NAME" --reso
 OPENAI_KEY=$(az cognitiveservices account keys list      --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 7. Azure AI Search ────────────────────────────────────────────────────────
-info "7. Azure AI Search..."
+info "6. Azure AI Search..."
 SEARCH_NAME="${PREFIX}-search"
 if az search service show --name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
   skip "$SEARCH_NAME (AI Search)"
@@ -155,20 +157,20 @@ SEARCH_ENDPOINT="https://${SEARCH_NAME}.search.windows.net"
 SEARCH_KEY=$(az search admin-key show --service-name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" --query "primaryKey" -o tsv 2>/dev/null || echo "")
 
 # ── 8. Azure Translator ───────────────────────────────────────────────────────
-info "8. Azure Translator..."
+info "7. Azure Translator..."
 TRANSLATOR_NAME="${PREFIX}-translator"
 create_cognitive "$TRANSLATOR_NAME" "TextTranslation" "S1" "global"
 TRANSLATOR_KEY=$(az cognitiveservices account keys list --name "$TRANSLATOR_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 9. Azure AI Content Safety ────────────────────────────────────────────────
-info "9. Azure AI Content Safety..."
+info "8. Azure AI Content Safety..."
 SAFETY_NAME="${PREFIX}-safety"
 create_cognitive "$SAFETY_NAME" "ContentSafety" "S0"
 SAFETY_ENDPOINT=$(az cognitiveservices account show --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
 SAFETY_KEY=$(az cognitiveservices account keys list      --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 10. Storage Account ───────────────────────────────────────────────────────
-info "10. Storage Account..."
+info "9. Storage Account..."
 STORAGE_NAME="${PREFIX}storage"
 # Storage account names must be lowercase alphanumeric only
 STORAGE_NAME=$(echo "$STORAGE_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]' | cut -c1-24)
