@@ -110,20 +110,45 @@ info "5. Azure OpenAI..."
 OPENAI_NAME="${PREFIX}-openai"
 create_cognitive "$OPENAI_NAME" "OpenAI" "S0"
 
-# Deploy GPT-4o (idempotent)
+# Deploy GPT-4o — essaie plusieurs versions/SKU selon la disponibilité régionale
+CHAT_DEPLOYMENT_NAME="gpt-4o"
 if az cognitiveservices account deployment show \
     --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
-    --deployment-name "gpt-4o" &>/dev/null; then
-  skip "  gpt-4o deployment"
+    --deployment-name "$CHAT_DEPLOYMENT_NAME" &>/dev/null; then
+  skip "  $CHAT_DEPLOYMENT_NAME deployment"
 else
-  az cognitiveservices account deployment create \
-    --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
-    --deployment-name "gpt-4o" \
-    --model-name "gpt-4o" --model-version "2024-05-13" \
-    --model-format OpenAI \
-    --sku-capacity 10 --sku-name "Standard" \
-    --output none \
-  && ok "  gpt-4o deployment" || fail "  gpt-4o deployment failed"
+  # francecentral supporte gpt-4o uniquement avec GlobalStandard et version 2024-08-06+
+  deployed=false
+  for version in "2024-08-06" "2024-11-20" "2024-05-13"; do
+    for sku in "GlobalStandard" "Standard"; do
+      if az cognitiveservices account deployment create \
+          --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+          --deployment-name "$CHAT_DEPLOYMENT_NAME" \
+          --model-name "gpt-4o" --model-version "$version" \
+          --model-format OpenAI \
+          --sku-capacity 10 --sku-name "$sku" \
+          --output none 2>/dev/null; then
+        ok "  $CHAT_DEPLOYMENT_NAME deployment (version=$version, sku=$sku)"
+        deployed=true
+        break 2
+      fi
+    done
+  done
+  # Fallback sur gpt-4o-mini si gpt-4o non disponible
+  if [[ "$deployed" == "false" ]]; then
+    CHAT_DEPLOYMENT_NAME="gpt-4o-mini"
+    if az cognitiveservices account deployment create \
+        --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+        --deployment-name "$CHAT_DEPLOYMENT_NAME" \
+        --model-name "gpt-4o-mini" --model-version "2024-07-18" \
+        --model-format OpenAI \
+        --sku-capacity 10 --sku-name "GlobalStandard" \
+        --output none 2>/dev/null; then
+      ok "  $CHAT_DEPLOYMENT_NAME deployment (fallback gpt-4o-mini)"
+    else
+      fail "  Aucun déploiement GPT disponible en $LOCATION — vérifiez les quotas Azure"
+    fi
+  fi
 fi
 
 # Deploy text-embedding-ada-002 (idempotent)
@@ -138,8 +163,19 @@ else
     --model-name "text-embedding-ada-002" --model-version "2" \
     --model-format OpenAI \
     --sku-capacity 10 --sku-name "Standard" \
-    --output none \
-  && ok "  text-embedding-ada-002 deployment" || fail "  text-embedding-ada-002 deployment failed"
+    --output none 2>/dev/null \
+  && ok "  text-embedding-ada-002 deployment" \
+  || { # Fallback GlobalStandard
+    az cognitiveservices account deployment create \
+      --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+      --deployment-name "text-embedding-ada-002" \
+      --model-name "text-embedding-ada-002" --model-version "2" \
+      --model-format OpenAI \
+      --sku-capacity 10 --sku-name "GlobalStandard" \
+      --output none \
+    && ok "  text-embedding-ada-002 deployment (GlobalStandard)" \
+    || fail "  text-embedding-ada-002 deployment failed";
+  }
 fi
 
 # Azure OpenAI endpoint doit être au format https://<name>.openai.azure.com/
@@ -233,7 +269,7 @@ AZURE_LANGUAGE_KEY=${LANGUAGE_KEY}
 AZURE_OPENAI_ENDPOINT=${OPENAI_ENDPOINT}
 AZURE_OPENAI_API_KEY=${OPENAI_KEY}
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_CHAT_DEPLOYMENT=${CHAT_DEPLOYMENT_NAME}
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 
 # --- Azure AI Vision ----------------------------------------------------
