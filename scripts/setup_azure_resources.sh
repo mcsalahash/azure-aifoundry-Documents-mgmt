@@ -52,10 +52,32 @@ create_cognitive() {
       --kind "$kind" \
       --sku "$sku" \
       --location "$loc" \
+      --custom-domain "$name" \
       --yes \
       --output none \
     && ok "$name ($kind)" \
     || { fail "Failed to create $name ($kind)"; return 1; }
+  fi
+}
+
+# ── Helper: ensure custom subdomain is set (needed for DNS resolution) ────────
+# Without a custom domain, Azure returns a generic regional endpoint
+# (francecentral.api.cognitive.microsoft.com) which the SDKs reject.
+ensure_custom_domain() {
+  local name="$1"
+  local current
+  current=$(az cognitiveservices account show \
+    --name "$name" --resource-group "$RESOURCE_GROUP" \
+    --query "properties.customSubDomainName" -o tsv 2>/dev/null || echo "")
+  if [[ -z "$current" || "$current" == "None" || "$current" == "null" ]]; then
+    az cognitiveservices account update \
+      --name "$name" --resource-group "$RESOURCE_GROUP" \
+      --custom-domain "$name" \
+      --output none 2>/dev/null \
+    && ok "  Custom domain set: ${name}.cognitiveservices.azure.com" \
+    || fail "  Could not set custom domain for $name (may require recreating the resource)"
+  else
+    ok "  Custom domain: ${current}.cognitiveservices.azure.com"
   fi
 }
 
@@ -71,48 +93,52 @@ echo ""
 info "1. Azure AI Services (multi-service)..."
 AI_SERVICES_NAME="${PREFIX}-ai-services"
 create_cognitive "$AI_SERVICES_NAME" "CognitiveServices" "S0"
-AI_ENDPOINT=$(az cognitiveservices account show --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-AI_KEY=$(az cognitiveservices account keys list      --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+ensure_custom_domain "$AI_SERVICES_NAME"
+AI_KEY=$(az cognitiveservices account keys list \
+  --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── 3. Document Intelligence ──────────────────────────────────────────────────
+# ── 2. Document Intelligence ──────────────────────────────────────────────────
 info "2. Document Intelligence..."
 DOC_INT_NAME="${PREFIX}-doc-intel"
 create_cognitive "$DOC_INT_NAME" "FormRecognizer" "S0"
-DOC_INT_ENDPOINT=$(az cognitiveservices account show --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-DOC_INT_KEY=$(az cognitiveservices account keys list --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-# Fallback: reconstruire l'endpoint si générique
-if [[ "$DOC_INT_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$DOC_INT_ENDPOINT" ]]; then
-  DOC_INT_ENDPOINT="https://${DOC_INT_NAME}.cognitiveservices.azure.com/"
-fi
+ensure_custom_domain "$DOC_INT_NAME"
+DOC_INT_ENDPOINT="https://${DOC_INT_NAME}.cognitiveservices.azure.com/"
+DOC_INT_KEY=$(az cognitiveservices account keys list \
+  --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── 4. Azure AI Language (Text Analytics) ─────────────────────────────────────
+# ── 3. Azure AI Language (Text Analytics) ─────────────────────────────────────
 info "3. Azure AI Language..."
 LANGUAGE_NAME="${PREFIX}-language"
 create_cognitive "$LANGUAGE_NAME" "TextAnalytics" "S"
-LANGUAGE_ENDPOINT=$(az cognitiveservices account show --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-LANGUAGE_KEY=$(az cognitiveservices account keys list      --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-# Reconstruire l'endpoint spécifique si générique ou vide
-if [[ "$LANGUAGE_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$LANGUAGE_ENDPOINT" ]]; then
-  LANGUAGE_ENDPOINT="https://${LANGUAGE_NAME}.cognitiveservices.azure.com/"
-fi
+ensure_custom_domain "$LANGUAGE_NAME"
+LANGUAGE_ENDPOINT="https://${LANGUAGE_NAME}.cognitiveservices.azure.com/"
+LANGUAGE_KEY=$(az cognitiveservices account keys list \
+  --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 LANGUAGE_KEY="${LANGUAGE_KEY:-$AI_KEY}"
 
-# ── 5. Azure AI Vision (Computer Vision) ──────────────────────────────────────
+# ── 4. Azure AI Vision (Computer Vision) ──────────────────────────────────────
 info "4. Azure AI Vision..."
 VISION_NAME="${PREFIX}-vision"
 create_cognitive "$VISION_NAME" "ComputerVision" "S1"
-VISION_ENDPOINT=$(az cognitiveservices account show --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-VISION_KEY=$(az cognitiveservices account keys list      --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-# Reconstruire l'endpoint spécifique si générique ou vide
-if [[ "$VISION_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$VISION_ENDPOINT" ]]; then
-  VISION_ENDPOINT="https://${VISION_NAME}.cognitiveservices.azure.com/"
-fi
+ensure_custom_domain "$VISION_NAME"
+VISION_ENDPOINT="https://${VISION_NAME}.cognitiveservices.azure.com/"
+VISION_KEY=$(az cognitiveservices account keys list \
+  --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 VISION_KEY="${VISION_KEY:-$AI_KEY}"
 
-# ── 6. Azure OpenAI ───────────────────────────────────────────────────────────
+# ── 5. Azure OpenAI ───────────────────────────────────────────────────────────
 info "5. Azure OpenAI..."
 OPENAI_NAME="${PREFIX}-openai"
 create_cognitive "$OPENAI_NAME" "OpenAI" "S0"
+# OpenAI uses openai.azure.com domain, not cognitiveservices — no custom domain needed
+OPENAI_ENDPOINT="https://${OPENAI_NAME}.openai.azure.com/"
+OPENAI_KEY=$(az cognitiveservices account keys list \
+  --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 
 # Deploy GPT-4o — essaie plusieurs versions/SKU selon la disponibilité régionale
 CHAT_DEPLOYMENT_NAME="gpt-4o"
@@ -121,7 +147,6 @@ if az cognitiveservices account deployment show \
     --deployment-name "$CHAT_DEPLOYMENT_NAME" &>/dev/null; then
   skip "  $CHAT_DEPLOYMENT_NAME deployment"
 else
-  # francecentral supporte gpt-4o uniquement avec GlobalStandard et version 2024-08-06+
   deployed=false
   for version in "2024-08-06" "2024-11-20" "2024-05-13"; do
     for sku in "GlobalStandard" "Standard"; do
@@ -138,7 +163,6 @@ else
       fi
     done
   done
-  # Fallback sur gpt-4o-mini si gpt-4o non disponible
   if [[ "$deployed" == "false" ]]; then
     CHAT_DEPLOYMENT_NAME="gpt-4o-mini"
     if az cognitiveservices account deployment create \
@@ -169,7 +193,7 @@ else
     --sku-capacity 10 --sku-name "Standard" \
     --output none 2>/dev/null \
   && ok "  text-embedding-ada-002 deployment" \
-  || { # Fallback GlobalStandard
+  || {
     az cognitiveservices account deployment create \
       --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
       --deployment-name "text-embedding-ada-002" \
@@ -182,18 +206,7 @@ else
   }
 fi
 
-# Azure OpenAI endpoint doit être au format https://<name>.openai.azure.com/
-# La commande az retourne parfois l'endpoint régional générique — on le reconstruit explicitement
-OPENAI_ENDPOINT_RAW=$(az cognitiveservices account show --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-# Si l'endpoint ne contient pas openai.azure.com, on le reconstruit
-if [[ "$OPENAI_ENDPOINT_RAW" != *"openai.azure.com"* ]]; then
-  OPENAI_ENDPOINT="https://${OPENAI_NAME}.openai.azure.com/"
-else
-  OPENAI_ENDPOINT="$OPENAI_ENDPOINT_RAW"
-fi
-OPENAI_KEY=$(az cognitiveservices account keys list --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-
-# ── 7. Azure AI Search ────────────────────────────────────────────────────────
+# ── 6. Azure AI Search ────────────────────────────────────────────────────────
 info "6. Azure AI Search..."
 SEARCH_NAME="${PREFIX}-search"
 if az search service show --name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
@@ -206,28 +219,32 @@ else
   && ok "$SEARCH_NAME (AI Search)" || fail "Failed to create $SEARCH_NAME"
 fi
 SEARCH_ENDPOINT="https://${SEARCH_NAME}.search.windows.net"
-SEARCH_KEY=$(az search admin-key show --service-name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" --query "primaryKey" -o tsv 2>/dev/null || echo "")
+SEARCH_KEY=$(az search admin-key show \
+  --service-name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "primaryKey" -o tsv 2>/dev/null || echo "")
 
-# ── 8. Azure Translator ───────────────────────────────────────────────────────
+# ── 7. Azure Translator ───────────────────────────────────────────────────────
 info "7. Azure Translator..."
 TRANSLATOR_NAME="${PREFIX}-translator"
 create_cognitive "$TRANSLATOR_NAME" "TextTranslation" "S1" "global"
-TRANSLATOR_KEY=$(az cognitiveservices account keys list --name "$TRANSLATOR_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+# Translator uses the global api.cognitive.microsofttranslator.com — no custom domain
+TRANSLATOR_KEY=$(az cognitiveservices account keys list \
+  --name "$TRANSLATOR_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── 9. Azure AI Content Safety ────────────────────────────────────────────────
+# ── 8. Azure AI Content Safety ────────────────────────────────────────────────
 info "8. Azure AI Content Safety..."
 SAFETY_NAME="${PREFIX}-safety"
 create_cognitive "$SAFETY_NAME" "ContentSafety" "S0"
-SAFETY_ENDPOINT=$(az cognitiveservices account show --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-SAFETY_KEY=$(az cognitiveservices account keys list --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-if [[ "$SAFETY_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$SAFETY_ENDPOINT" ]]; then
-  SAFETY_ENDPOINT="https://${SAFETY_NAME}.cognitiveservices.azure.com/"
-fi
+ensure_custom_domain "$SAFETY_NAME"
+SAFETY_ENDPOINT="https://${SAFETY_NAME}.cognitiveservices.azure.com/"
+SAFETY_KEY=$(az cognitiveservices account keys list \
+  --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── 10. Storage Account ───────────────────────────────────────────────────────
+# ── 9. Storage Account ───────────────────────────────────────────────────────
 info "9. Storage Account..."
 STORAGE_NAME="${PREFIX}storage"
-# Storage account names must be lowercase alphanumeric only
 STORAGE_NAME=$(echo "$STORAGE_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]' | cut -c1-24)
 if az storage account show --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
   skip "$STORAGE_NAME (Storage)"
@@ -242,10 +259,10 @@ STORAGE_CONN=$(az storage account show-connection-string \
   --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" \
   --query "connectionString" -o tsv 2>/dev/null || echo "")
 
-# Create blob container (idempotent)
 if [ -n "$STORAGE_CONN" ]; then
-  az storage container create --name documents --connection-string "$STORAGE_CONN" --output none 2>/dev/null \
-    && ok "  container 'documents'" || skip "  container 'documents'"
+  az storage container create --name documents \
+    --connection-string "$STORAGE_CONN" --output none 2>/dev/null \
+  && ok "  container 'documents'" || skip "  container 'documents'"
 fi
 
 # ── Generate .env ─────────────────────────────────────────────────────────────
@@ -310,15 +327,14 @@ ok ".env generated"
 echo ""
 info "=== Provisioning Summary ==="
 echo ""
-echo "  Document Intelligence : ${DOC_INT_ENDPOINT:-NOT CREATED}"
-echo "  Language              : ${LANGUAGE_ENDPOINT:-NOT CREATED}"
-echo "  Vision                : ${VISION_ENDPOINT:-NOT CREATED}"
-echo "  OpenAI                : ${OPENAI_ENDPOINT:-NOT CREATED}"
-echo "  AI Search             : ${SEARCH_ENDPOINT:-NOT CREATED}"
-echo "  Translator            : ${TRANSLATOR_KEY:+configured}"
-echo "  Content Safety        : ${SAFETY_ENDPOINT:-NOT CREATED}"
+echo "  Document Intelligence : ${DOC_INT_ENDPOINT}"
+echo "  Language              : ${LANGUAGE_ENDPOINT}"
+echo "  Vision                : ${VISION_ENDPOINT}"
+echo "  OpenAI                : ${OPENAI_ENDPOINT}"
+echo "  AI Search             : ${SEARCH_ENDPOINT}"
+echo "  Translator            : ${TRANSLATOR_KEY:+configured (global endpoint)}"
+echo "  Content Safety        : ${SAFETY_ENDPOINT}"
 echo "  Storage               : ${STORAGE_NAME}"
 echo ""
 info "Next steps:"
-echo "  pip install -r requirements.txt"
-echo "  uvicorn app.main:app --reload"
+echo "  DOCKER_API_VERSION=1.41 docker compose up --build -d"
