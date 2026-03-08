@@ -15,10 +15,11 @@ AI-102 Certification coverage:
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from azure.core.exceptions import HttpResponseError
 import os
 
 from app.config import get_settings
@@ -73,6 +74,20 @@ Application de référence pour la certification **Microsoft AI-102**.
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+@app.exception_handler(HttpResponseError)
+async def azure_http_error_handler(request: Request, exc: HttpResponseError):
+    status = exc.status_code if exc.status_code else 502
+    return JSONResponse(status_code=status, content={"detail": exc.message or str(exc)})
+
+
+@app.exception_handler(Exception)
+async def generic_error_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        raise exc
+    logger.exception("Unhandled error on %s: %s", request.url.path, exc)
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
 
 # CORS
 app.add_middleware(
