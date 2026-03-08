@@ -39,6 +39,11 @@ class DocumentIntelligenceService:
 
     def __init__(self):
         settings = get_settings()
+        if not settings.azure_document_intelligence_endpoint or not settings.azure_document_intelligence_key:
+            raise ValueError(
+                "Document Intelligence non configuré. "
+                "Définissez AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT et AZURE_DOCUMENT_INTELLIGENCE_KEY dans .env"
+            )
         self.client = DocumentIntelligenceClient(
             endpoint=settings.azure_document_intelligence_endpoint,
             credential=AzureKeyCredential(settings.azure_document_intelligence_key),

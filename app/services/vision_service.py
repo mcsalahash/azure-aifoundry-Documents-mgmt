@@ -48,6 +48,11 @@ class VisionService:
 
     def __init__(self):
         settings = get_settings()
+        if not settings.azure_vision_endpoint or not settings.azure_vision_key:
+            raise ValueError(
+                "Azure AI Vision non configuré. "
+                "Définissez AZURE_VISION_ENDPOINT et AZURE_VISION_KEY dans .env"
+            )
         self.client = ImageAnalysisClient(
             endpoint=settings.azure_vision_endpoint,
             credential=AzureKeyCredential(settings.azure_vision_key),

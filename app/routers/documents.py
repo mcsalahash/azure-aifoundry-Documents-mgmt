@@ -25,11 +25,17 @@ router = APIRouter(prefix="/documents", tags=["Documents & Document Intelligence
 
 
 def get_doc_service() -> DocumentIntelligenceService:
-    return DocumentIntelligenceService()
+    try:
+        return DocumentIntelligenceService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 def get_vision_service() -> VisionService:
-    return VisionService()
+    try:
+        return VisionService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.post(

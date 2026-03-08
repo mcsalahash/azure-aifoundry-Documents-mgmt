@@ -56,6 +56,11 @@ class AzureOpenAIService:
 
     def __init__(self):
         settings = get_settings()
+        if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
+            raise ValueError(
+                "Azure OpenAI non configuré. "
+                "Définissez AZURE_OPENAI_ENDPOINT et AZURE_OPENAI_API_KEY dans .env"
+            )
         self.client = AzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,

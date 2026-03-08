@@ -30,11 +30,17 @@ router = APIRouter(prefix="/analysis", tags=["Text Analysis & AI Language"])
 
 
 def get_language_service() -> AILanguageService:
-    return AILanguageService()
+    try:
+        return AILanguageService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 def get_openai_service() -> AzureOpenAIService:
-    return AzureOpenAIService()
+    try:
+        return AzureOpenAIService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 def get_translation_service() -> TranslationService:

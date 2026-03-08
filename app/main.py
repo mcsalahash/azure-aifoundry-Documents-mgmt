@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from azure.core.exceptions import HttpResponseError
+from openai import APIError as OpenAIAPIError
 import os
 
 from app.config import get_settings
@@ -99,6 +100,32 @@ async def azure_http_error_handler(request: Request, exc: HttpResponseError):
                 "Vérifiez vos credentials Azure dans le fichier .env "
                 "et le nom de votre déploiement dans Azure Portal."
             ) if azure_status == 404 else None,
+        },
+    )
+
+
+@app.exception_handler(OpenAIAPIError)
+async def openai_error_handler(request: Request, exc: OpenAIAPIError):
+    status = exc.status_code or 502
+    # DeploymentNotFound ou ressource introuvable → 502 (pas 404 trompeur)
+    http_status = 502 if status == 404 else status
+    logger.error(
+        "Azure OpenAI error on %s: [%s] %s",
+        request.url.path,
+        exc.code or status,
+        str(exc),
+    )
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "detail": str(exc.message) if hasattr(exc, "message") else str(exc),
+            "azure_error_code": exc.code,
+            "hint": (
+                "Vérifiez AZURE_OPENAI_CHAT_DEPLOYMENT dans .env — "
+                "le nom doit correspondre exactement au déploiement dans Azure Portal."
+            ) if (exc.code and "DeploymentNotFound" in str(exc.code)) else (
+                "Vérifiez AZURE_OPENAI_ENDPOINT et AZURE_OPENAI_API_KEY dans .env."
+            ) if status in (401, 403, 404) else None,
         },
     )
 
