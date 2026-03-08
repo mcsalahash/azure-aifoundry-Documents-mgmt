@@ -91,8 +91,10 @@ LANGUAGE_NAME="${PREFIX}-language"
 create_cognitive "$LANGUAGE_NAME" "TextAnalytics" "S"
 LANGUAGE_ENDPOINT=$(az cognitiveservices account show --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
 LANGUAGE_KEY=$(az cognitiveservices account keys list      --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-# Fallback to multi-service if dedicated service creation failed
-LANGUAGE_ENDPOINT="${LANGUAGE_ENDPOINT:-$AI_ENDPOINT}"
+# Reconstruire l'endpoint spécifique si générique ou vide
+if [[ "$LANGUAGE_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$LANGUAGE_ENDPOINT" ]]; then
+  LANGUAGE_ENDPOINT="https://${LANGUAGE_NAME}.cognitiveservices.azure.com/"
+fi
 LANGUAGE_KEY="${LANGUAGE_KEY:-$AI_KEY}"
 
 # ── 5. Azure AI Vision (Computer Vision) ──────────────────────────────────────
@@ -101,8 +103,10 @@ VISION_NAME="${PREFIX}-vision"
 create_cognitive "$VISION_NAME" "ComputerVision" "S1"
 VISION_ENDPOINT=$(az cognitiveservices account show --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
 VISION_KEY=$(az cognitiveservices account keys list      --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
-# Fallback to multi-service if dedicated service creation failed
-VISION_ENDPOINT="${VISION_ENDPOINT:-$AI_ENDPOINT}"
+# Reconstruire l'endpoint spécifique si générique ou vide
+if [[ "$VISION_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$VISION_ENDPOINT" ]]; then
+  VISION_ENDPOINT="https://${VISION_NAME}.cognitiveservices.azure.com/"
+fi
 VISION_KEY="${VISION_KEY:-$AI_KEY}"
 
 # ── 6. Azure OpenAI ───────────────────────────────────────────────────────────
