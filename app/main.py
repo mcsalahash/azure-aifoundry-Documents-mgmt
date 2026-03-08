@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from azure.core.exceptions import HttpResponseError
 from openai import APIError as OpenAIAPIError
+import httpx
 import os
 
 from app.config import get_settings
@@ -127,6 +128,22 @@ async def openai_error_handler(request: Request, exc: OpenAIAPIError):
                 "Vérifiez AZURE_OPENAI_ENDPOINT et AZURE_OPENAI_API_KEY dans .env."
             ) if status in (401, 403, 404) else None,
         },
+    )
+
+
+@app.exception_handler(httpx.HTTPStatusError)
+async def httpx_error_handler(request: Request, exc: httpx.HTTPStatusError):
+    status = exc.response.status_code
+    http_status = 502 if status == 404 else status
+    hint = None
+    if status == 401:
+        hint = "Clé API incorrecte — vérifiez AZURE_TRANSLATOR_KEY dans .env"
+    elif status == 403:
+        hint = "Accès refusé — vérifiez AZURE_TRANSLATOR_REGION dans .env"
+    logger.error("HTTP error on %s: [%s] %s", request.url.path, status, str(exc))
+    return JSONResponse(
+        status_code=http_status,
+        content={"detail": str(exc), "hint": hint},
     )
 
 
