@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from typing import Optional
+from azure.core.exceptions import HttpResponseError
 
 from app.models.schemas import (
     DocumentAnalysisRequest,
@@ -117,7 +118,12 @@ async def extract_text_from_image(
             detail=f"File must be an image. Received: {extension}",
         )
 
-    ocr_result = await service.extract_text_from_image(content)
+    try:
+        ocr_result = await service.extract_text_from_image(content)
+    except HttpResponseError as e:
+        raise HTTPException(status_code=e.status_code or 502, detail=str(e.message))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return VisionAnalysisResponse(
         extracted_text=ocr_result["full_text"],
         ocr_lines=ocr_result["lines"],
