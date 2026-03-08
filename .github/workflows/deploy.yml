@@ -7,8 +7,8 @@
 #
 # Secrets GitHub requis (Settings → Secrets → Actions) :
 #   VM_HOST            : IP publique ou DNS de la VM
-#   VM_USER            : utilisateur SSH (ex: azureuser)
-#   VM_SSH_PRIVATE_KEY : clé privée SSH (contenu du fichier id_rsa)
+#   VM_USER            : utilisateur (ex: azureuser)
+#   VM_PASSWORD        : mot de passe de connexion
 #   AZURE_KEYVAULT_URL : URL du vault (ex: https://mon-vault.vault.azure.net/)
 # ============================================================
 
@@ -22,30 +22,33 @@ on:
 
 jobs:
   deploy:
-    name: SSH Deploy
+    name: SSH Deploy (password)
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      # ── 1. Vérification du code (optionnel mais recommandé) ──────────
+      # ── 1. Checkout ──────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Configuration SSH ─────────────────────────────────────────
-      - name: Setup SSH key
+      # ── 2. Installation de sshpass ───────────────────────────────────
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      # ── 3. Ajout de la VM aux known_hosts ───────────────────────────
+      - name: Add VM to known_hosts
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          # Ajouter la VM aux known_hosts (évite la confirmation interactive)
           ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # ── 3. Déploiement sur la VM ─────────────────────────────────────
+      # ── 4. Déploiement sur la VM ─────────────────────────────────────
       - name: Deploy
+        env:
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
         run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=yes \
-              "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" << 'ENDSSH'
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" << 'ENDSSH'
             set -euo pipefail
 
             APP_DIR="/opt/azure-aifoundry-Documents-mgmt"
@@ -71,7 +74,7 @@ jobs:
             docker compose ps
           ENDSSH
 
-      # ── 4. Vérification de santé ─────────────────────────────────────
+      # ── 5. Vérification de santé ─────────────────────────────────────
       - name: Health check
         run: |
           echo "Attente démarrage (15s)..."
