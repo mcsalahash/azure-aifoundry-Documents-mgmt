@@ -134,7 +134,8 @@ VISION_KEY="${VISION_KEY:-$AI_KEY}"
 info "5. Azure OpenAI..."
 OPENAI_NAME="${PREFIX}-openai"
 create_cognitive "$OPENAI_NAME" "OpenAI" "S0"
-# OpenAI uses openai.azure.com domain, not cognitiveservices — no custom domain needed
+# For kind=OpenAI, --custom-domain creates <name>.openai.azure.com (not cognitiveservices.azure.com)
+ensure_custom_domain "$OPENAI_NAME"
 OPENAI_ENDPOINT="https://${OPENAI_NAME}.openai.azure.com/"
 OPENAI_KEY=$(az cognitiveservices account keys list \
   --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
