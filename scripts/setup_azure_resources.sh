@@ -9,197 +9,259 @@
 # Usage:
 #   chmod +x scripts/setup_azure_resources.sh
 #   ./scripts/setup_azure_resources.sh
+#
+# Idempotent: safe to re-run — existing resources are skipped, not recreated.
 # =============================================================================
 
-set -euo pipefail
+set -uo pipefail   # -e removed intentionally: individual failures are handled per-resource
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+ok()   { echo -e "   ${GREEN}✅ $*${NC}"; }
+skip() { echo -e "   ${YELLOW}⏭  $* (already exists)${NC}"; }
+fail() { echo -e "   ${RED}❌ $*${NC}"; }
+info() { echo -e "${CYAN}$*${NC}"; }
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-rg-ai-foundry-lab}"
 LOCATION="${AZURE_LOCATION:-eastus}"
-PREFIX="ai102lab"
+PREFIX="${AZURE_PREFIX:-ai102lab}"
 
-echo "=== Azure AI Foundry Lab — Resource Provisioning ==="
-echo "Resource Group : $RESOURCE_GROUP"
-echo "Location       : $LOCATION"
-echo ""
+SUBSCRIPTION_ID=$(az account show --query id -o tsv 2>/dev/null || echo "")
 
-# ── Resource Group ────────────────────────────────────────────────────────────
-echo "1. Creating Resource Group..."
-az group create \
-  --name "$RESOURCE_GROUP" \
-  --location "$LOCATION" \
-  --output none
-echo "   ✅ Resource Group: $RESOURCE_GROUP"
+info "=== Azure AI Foundry Lab — Resource Provisioning ==="
+echo  "Resource Group : $RESOURCE_GROUP"
+echo  "Location       : $LOCATION"
+echo  "Subscription   : ${SUBSCRIPTION_ID:-<not detected>}"
+echo  ""
 
-# ── Azure AI Services (multi-service) ─────────────────────────────────────────
-echo "2. Creating Azure AI Services (multi-service endpoint)..."
+# ── Helper: create or skip a Cognitive Services account ───────────────────────
+create_cognitive() {
+  local name="$1" kind="$2" sku="$3" loc="${4:-$LOCATION}"
+  if az cognitiveservices account show --name "$name" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+    skip "$name ($kind)"
+  else
+    az cognitiveservices account create \
+      --name "$name" \
+      --resource-group "$RESOURCE_GROUP" \
+      --kind "$kind" \
+      --sku "$sku" \
+      --location "$loc" \
+      --yes \
+      --output none \
+    && ok "$name ($kind)" \
+    || { fail "Failed to create $name ($kind)"; return 1; }
+  fi
+}
+
+# ── 1. Resource Group ─────────────────────────────────────────────────────────
+info "1. Resource Group..."
+az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none \
+  && ok "Resource Group: $RESOURCE_GROUP" \
+  || fail "Resource Group creation failed (may already exist — continuing)"
+
+# ── 2. Azure AI Services (multi-service — covers Vision + Language fallback) ──
+info "2. Azure AI Services (multi-service)..."
 AI_SERVICES_NAME="${PREFIX}-ai-services"
-az cognitiveservices account create \
-  --name "$AI_SERVICES_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --kind CognitiveServices \
-  --sku S0 \
-  --location "$LOCATION" \
-  --yes \
-  --output none
-AI_ENDPOINT=$(az cognitiveservices account show --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv)
-AI_KEY=$(az cognitiveservices account keys list --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv)
-echo "   ✅ AI Services: $AI_SERVICES_NAME"
+create_cognitive "$AI_SERVICES_NAME" "CognitiveServices" "S0"
+AI_ENDPOINT=$(az cognitiveservices account show --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+AI_KEY=$(az cognitiveservices account keys list      --name "$AI_SERVICES_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── Document Intelligence ──────────────────────────────────────────────────────
-echo "3. Creating Document Intelligence..."
+# ── 3. Document Intelligence ──────────────────────────────────────────────────
+info "3. Document Intelligence..."
 DOC_INT_NAME="${PREFIX}-doc-intel"
-az cognitiveservices account create \
-  --name "$DOC_INT_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --kind FormRecognizer \
-  --sku S0 \
-  --location "$LOCATION" \
-  --yes \
-  --output none
-DOC_INT_ENDPOINT=$(az cognitiveservices account show --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv)
-DOC_INT_KEY=$(az cognitiveservices account keys list --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv)
-echo "   ✅ Document Intelligence: $DOC_INT_NAME"
+create_cognitive "$DOC_INT_NAME" "FormRecognizer" "S0"
+DOC_INT_ENDPOINT=$(az cognitiveservices account show --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+DOC_INT_KEY=$(az cognitiveservices account keys list      --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── Azure OpenAI ───────────────────────────────────────────────────────────────
-echo "4. Creating Azure OpenAI..."
+# ── 4. Azure AI Language (Text Analytics) ─────────────────────────────────────
+info "4. Azure AI Language..."
+LANGUAGE_NAME="${PREFIX}-language"
+create_cognitive "$LANGUAGE_NAME" "TextAnalytics" "S"
+LANGUAGE_ENDPOINT=$(az cognitiveservices account show --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+LANGUAGE_KEY=$(az cognitiveservices account keys list      --name "$LANGUAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+# Fallback to multi-service if dedicated service creation failed
+LANGUAGE_ENDPOINT="${LANGUAGE_ENDPOINT:-$AI_ENDPOINT}"
+LANGUAGE_KEY="${LANGUAGE_KEY:-$AI_KEY}"
+
+# ── 5. Azure AI Vision (Computer Vision) ──────────────────────────────────────
+info "5. Azure AI Vision..."
+VISION_NAME="${PREFIX}-vision"
+create_cognitive "$VISION_NAME" "ComputerVision" "S1"
+VISION_ENDPOINT=$(az cognitiveservices account show --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+VISION_KEY=$(az cognitiveservices account keys list      --name "$VISION_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+# Fallback to multi-service if dedicated service creation failed
+VISION_ENDPOINT="${VISION_ENDPOINT:-$AI_ENDPOINT}"
+VISION_KEY="${VISION_KEY:-$AI_KEY}"
+
+# ── 6. Azure OpenAI ───────────────────────────────────────────────────────────
+info "6. Azure OpenAI..."
 OPENAI_NAME="${PREFIX}-openai"
-az cognitiveservices account create \
-  --name "$OPENAI_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --kind OpenAI \
-  --sku S0 \
-  --location "$LOCATION" \
-  --yes \
-  --output none
+create_cognitive "$OPENAI_NAME" "OpenAI" "S0"
 
-# Deploy GPT-4o
-az cognitiveservices account deployment create \
-  --name "$OPENAI_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --deployment-name "gpt-4o" \
-  --model-name "gpt-4o" \
-  --model-version "2024-05-13" \
-  --model-format OpenAI \
-  --sku-capacity 10 \
-  --sku-name "Standard" \
-  --output none
+# Deploy GPT-4o (idempotent)
+if az cognitiveservices account deployment show \
+    --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+    --deployment-name "gpt-4o" &>/dev/null; then
+  skip "  gpt-4o deployment"
+else
+  az cognitiveservices account deployment create \
+    --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+    --deployment-name "gpt-4o" \
+    --model-name "gpt-4o" --model-version "2024-05-13" \
+    --model-format OpenAI \
+    --sku-capacity 10 --sku-name "Standard" \
+    --output none \
+  && ok "  gpt-4o deployment" || fail "  gpt-4o deployment failed"
+fi
 
-# Deploy text-embedding-ada-002
-az cognitiveservices account deployment create \
-  --name "$OPENAI_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --deployment-name "text-embedding-ada-002" \
-  --model-name "text-embedding-ada-002" \
-  --model-version "2" \
-  --model-format OpenAI \
-  --sku-capacity 10 \
-  --sku-name "Standard" \
-  --output none
+# Deploy text-embedding-ada-002 (idempotent)
+if az cognitiveservices account deployment show \
+    --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+    --deployment-name "text-embedding-ada-002" &>/dev/null; then
+  skip "  text-embedding-ada-002 deployment"
+else
+  az cognitiveservices account deployment create \
+    --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" \
+    --deployment-name "text-embedding-ada-002" \
+    --model-name "text-embedding-ada-002" --model-version "2" \
+    --model-format OpenAI \
+    --sku-capacity 10 --sku-name "Standard" \
+    --output none \
+  && ok "  text-embedding-ada-002 deployment" || fail "  text-embedding-ada-002 deployment failed"
+fi
 
-OPENAI_ENDPOINT=$(az cognitiveservices account show --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv)
-OPENAI_KEY=$(az cognitiveservices account keys list --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv)
-echo "   ✅ Azure OpenAI: $OPENAI_NAME (gpt-4o + text-embedding-ada-002)"
+OPENAI_ENDPOINT=$(az cognitiveservices account show --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+OPENAI_KEY=$(az cognitiveservices account keys list      --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── Azure AI Search ────────────────────────────────────────────────────────────
-echo "5. Creating Azure AI Search..."
+# ── 7. Azure AI Search ────────────────────────────────────────────────────────
+info "7. Azure AI Search..."
 SEARCH_NAME="${PREFIX}-search"
-az search service create \
-  --name "$SEARCH_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --sku basic \
-  --location "$LOCATION" \
-  --output none
+if az search service show --name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+  skip "$SEARCH_NAME (AI Search)"
+else
+  az search service create \
+    --name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" \
+    --sku basic --location "$LOCATION" \
+    --output none \
+  && ok "$SEARCH_NAME (AI Search)" || fail "Failed to create $SEARCH_NAME"
+fi
 SEARCH_ENDPOINT="https://${SEARCH_NAME}.search.windows.net"
-SEARCH_KEY=$(az search admin-key show --service-name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" --query "primaryKey" -o tsv)
-echo "   ✅ Azure AI Search: $SEARCH_NAME"
+SEARCH_KEY=$(az search admin-key show --service-name "$SEARCH_NAME" --resource-group "$RESOURCE_GROUP" --query "primaryKey" -o tsv 2>/dev/null || echo "")
 
-# ── Azure Translator ───────────────────────────────────────────────────────────
-echo "6. Creating Azure Translator..."
+# ── 8. Azure Translator ───────────────────────────────────────────────────────
+info "8. Azure Translator..."
 TRANSLATOR_NAME="${PREFIX}-translator"
-az cognitiveservices account create \
-  --name "$TRANSLATOR_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --kind TextTranslation \
-  --sku S1 \
-  --location global \
-  --yes \
-  --output none
-TRANSLATOR_KEY=$(az cognitiveservices account keys list --name "$TRANSLATOR_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv)
-echo "   ✅ Translator: $TRANSLATOR_NAME"
+create_cognitive "$TRANSLATOR_NAME" "TextTranslation" "S1" "global"
+TRANSLATOR_KEY=$(az cognitiveservices account keys list --name "$TRANSLATOR_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── Azure AI Content Safety ────────────────────────────────────────────────────
-echo "7. Creating Azure AI Content Safety..."
+# ── 9. Azure AI Content Safety ────────────────────────────────────────────────
+info "9. Azure AI Content Safety..."
 SAFETY_NAME="${PREFIX}-safety"
-az cognitiveservices account create \
-  --name "$SAFETY_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --kind ContentSafety \
-  --sku S0 \
-  --location "$LOCATION" \
-  --yes \
-  --output none
-SAFETY_ENDPOINT=$(az cognitiveservices account show --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv)
-SAFETY_KEY=$(az cognitiveservices account keys list --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv)
-echo "   ✅ Content Safety: $SAFETY_NAME"
+create_cognitive "$SAFETY_NAME" "ContentSafety" "S0"
+SAFETY_ENDPOINT=$(az cognitiveservices account show --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+SAFETY_KEY=$(az cognitiveservices account keys list      --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
-# ── Storage Account ────────────────────────────────────────────────────────────
-echo "8. Creating Storage Account..."
+# ── 10. Storage Account ───────────────────────────────────────────────────────
+info "10. Storage Account..."
 STORAGE_NAME="${PREFIX}storage"
-az storage account create \
-  --name "$STORAGE_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --location "$LOCATION" \
-  --sku Standard_LRS \
-  --output none
-STORAGE_CONN=$(az storage account show-connection-string --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" --query "connectionString" -o tsv)
-az storage container create --name documents --connection-string "$STORAGE_CONN" --output none
-echo "   ✅ Storage: $STORAGE_NAME"
+# Storage account names must be lowercase alphanumeric only
+STORAGE_NAME=$(echo "$STORAGE_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]' | cut -c1-24)
+if az storage account show --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+  skip "$STORAGE_NAME (Storage)"
+else
+  az storage account create \
+    --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" \
+    --location "$LOCATION" --sku Standard_LRS \
+    --output none \
+  && ok "$STORAGE_NAME (Storage)" || fail "Failed to create storage account"
+fi
+STORAGE_CONN=$(az storage account show-connection-string \
+  --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" \
+  --query "connectionString" -o tsv 2>/dev/null || echo "")
 
-# ── Generate .env file ─────────────────────────────────────────────────────────
-echo ""
-echo "=== Generating .env file ==="
+# Create blob container (idempotent)
+if [ -n "$STORAGE_CONN" ]; then
+  az storage container create --name documents --connection-string "$STORAGE_CONN" --output none 2>/dev/null \
+    && ok "  container 'documents'" || skip "  container 'documents'"
+fi
+
+# ── Generate .env ─────────────────────────────────────────────────────────────
+info ""
+info "=== Generating .env ==="
+
 cat > .env <<EOF
 # Auto-generated by setup_azure_resources.sh — $(date)
+# Re-run the script at any time to refresh keys.
 
-AZURE_RESOURCE_GROUP=$RESOURCE_GROUP
-AZURE_LOCATION=$LOCATION
+# --- Azure Subscription -------------------------------------------------
+AZURE_SUBSCRIPTION_ID=${SUBSCRIPTION_ID}
+AZURE_RESOURCE_GROUP=${RESOURCE_GROUP}
+AZURE_LOCATION=${LOCATION}
 
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=$DOC_INT_ENDPOINT
-AZURE_DOCUMENT_INTELLIGENCE_KEY=$DOC_INT_KEY
+# --- Azure Document Intelligence ----------------------------------------
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=${DOC_INT_ENDPOINT}
+AZURE_DOCUMENT_INTELLIGENCE_KEY=${DOC_INT_KEY}
 
-AZURE_LANGUAGE_ENDPOINT=$AI_ENDPOINT
-AZURE_LANGUAGE_KEY=$AI_KEY
+# --- Azure AI Language --------------------------------------------------
+AZURE_LANGUAGE_ENDPOINT=${LANGUAGE_ENDPOINT}
+AZURE_LANGUAGE_KEY=${LANGUAGE_KEY}
 
-AZURE_OPENAI_ENDPOINT=$OPENAI_ENDPOINT
-AZURE_OPENAI_API_KEY=$OPENAI_KEY
+# --- Azure OpenAI -------------------------------------------------------
+AZURE_OPENAI_ENDPOINT=${OPENAI_ENDPOINT}
+AZURE_OPENAI_API_KEY=${OPENAI_KEY}
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 
-AZURE_VISION_ENDPOINT=$AI_ENDPOINT
-AZURE_VISION_KEY=$AI_KEY
+# --- Azure AI Vision ----------------------------------------------------
+AZURE_VISION_ENDPOINT=${VISION_ENDPOINT}
+AZURE_VISION_KEY=${VISION_KEY}
 
+# --- Azure AI Translator ------------------------------------------------
 AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com/
-AZURE_TRANSLATOR_KEY=$TRANSLATOR_KEY
-AZURE_TRANSLATOR_REGION=$LOCATION
+AZURE_TRANSLATOR_KEY=${TRANSLATOR_KEY}
+AZURE_TRANSLATOR_REGION=${LOCATION}
 
-AZURE_SEARCH_ENDPOINT=$SEARCH_ENDPOINT
-AZURE_SEARCH_ADMIN_KEY=$SEARCH_KEY
+# --- Azure AI Search ----------------------------------------------------
+AZURE_SEARCH_ENDPOINT=${SEARCH_ENDPOINT}
+AZURE_SEARCH_ADMIN_KEY=${SEARCH_KEY}
 AZURE_SEARCH_INDEX_NAME=documents-index
 
-AZURE_CONTENT_SAFETY_ENDPOINT=$SAFETY_ENDPOINT
-AZURE_CONTENT_SAFETY_KEY=$SAFETY_KEY
+# --- Azure AI Content Safety --------------------------------------------
+AZURE_CONTENT_SAFETY_ENDPOINT=${SAFETY_ENDPOINT}
+AZURE_CONTENT_SAFETY_KEY=${SAFETY_KEY}
 
-AZURE_STORAGE_CONNECTION_STRING=$STORAGE_CONN
+# --- Azure Blob Storage -------------------------------------------------
+AZURE_STORAGE_CONNECTION_STRING=${STORAGE_CONN}
 AZURE_STORAGE_CONTAINER_NAME=documents
 
+# --- Application Settings -----------------------------------------------
 APP_ENV=development
 APP_HOST=0.0.0.0
 APP_PORT=8000
+MAX_UPLOAD_SIZE_MB=50
+ALLOWED_EXTENSIONS=pdf,docx,txt,png,jpg,jpeg,tiff
 EOF
 
-echo "✅ .env file generated"
+ok ".env generated"
 echo ""
-echo "=== Setup Complete! ==="
-echo "Run: pip install -r requirements.txt && uvicorn app.main:app --reload"
+info "=== Provisioning Summary ==="
+echo ""
+echo "  Document Intelligence : ${DOC_INT_ENDPOINT:-NOT CREATED}"
+echo "  Language              : ${LANGUAGE_ENDPOINT:-NOT CREATED}"
+echo "  Vision                : ${VISION_ENDPOINT:-NOT CREATED}"
+echo "  OpenAI                : ${OPENAI_ENDPOINT:-NOT CREATED}"
+echo "  AI Search             : ${SEARCH_ENDPOINT:-NOT CREATED}"
+echo "  Translator            : ${TRANSLATOR_KEY:+configured}"
+echo "  Content Safety        : ${SAFETY_ENDPOINT:-NOT CREATED}"
+echo "  Storage               : ${STORAGE_NAME}"
+echo ""
+info "Next steps:"
+echo "  pip install -r requirements.txt"
+echo "  uvicorn app.main:app --reload"
