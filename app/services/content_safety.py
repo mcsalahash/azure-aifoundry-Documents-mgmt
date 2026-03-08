@@ -46,6 +46,11 @@ class ContentSafetyService:
 
     def __init__(self):
         settings = get_settings()
+        if not settings.azure_content_safety_endpoint or not settings.azure_content_safety_key:
+            raise ValueError(
+                "Azure Content Safety non configuré. "
+                "Définissez AZURE_CONTENT_SAFETY_ENDPOINT et AZURE_CONTENT_SAFETY_KEY dans .env"
+            )
         self.client = ContentSafetyClient(
             endpoint=settings.azure_content_safety_endpoint,
             credential=AzureKeyCredential(settings.azure_content_safety_key),

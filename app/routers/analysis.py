@@ -44,11 +44,17 @@ def get_openai_service() -> AzureOpenAIService:
 
 
 def get_translation_service() -> TranslationService:
-    return TranslationService()
+    try:
+        return TranslationService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 def get_content_safety_service() -> ContentSafetyService:
-    return ContentSafetyService()
+    try:
+        return ContentSafetyService()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 # ── Azure AI Language ──────────────────────────────────────────────────────

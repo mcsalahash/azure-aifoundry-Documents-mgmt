@@ -34,6 +34,11 @@ class TranslationService:
 
     def __init__(self):
         settings = get_settings()
+        if not settings.azure_translator_key:
+            raise ValueError(
+                "Azure Translator non configuré. "
+                "Définissez AZURE_TRANSLATOR_KEY et AZURE_TRANSLATOR_REGION dans .env"
+            )
         self.endpoint = settings.azure_translator_endpoint.rstrip("/")
         self.key = settings.azure_translator_key
         self.region = settings.azure_translator_region
