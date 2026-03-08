@@ -79,7 +79,11 @@ info "2. Document Intelligence..."
 DOC_INT_NAME="${PREFIX}-doc-intel"
 create_cognitive "$DOC_INT_NAME" "FormRecognizer" "S0"
 DOC_INT_ENDPOINT=$(az cognitiveservices account show --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-DOC_INT_KEY=$(az cognitiveservices account keys list      --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+DOC_INT_KEY=$(az cognitiveservices account keys list --name "$DOC_INT_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+# Fallback: reconstruire l'endpoint si générique
+if [[ "$DOC_INT_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$DOC_INT_ENDPOINT" ]]; then
+  DOC_INT_ENDPOINT="https://${DOC_INT_NAME}.cognitiveservices.azure.com/"
+fi
 
 # ── 4. Azure AI Language (Text Analytics) ─────────────────────────────────────
 info "3. Azure AI Language..."
@@ -138,8 +142,16 @@ else
   && ok "  text-embedding-ada-002 deployment" || fail "  text-embedding-ada-002 deployment failed"
 fi
 
-OPENAI_ENDPOINT=$(az cognitiveservices account show --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-OPENAI_KEY=$(az cognitiveservices account keys list      --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+# Azure OpenAI endpoint doit être au format https://<name>.openai.azure.com/
+# La commande az retourne parfois l'endpoint régional générique — on le reconstruit explicitement
+OPENAI_ENDPOINT_RAW=$(az cognitiveservices account show --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
+# Si l'endpoint ne contient pas openai.azure.com, on le reconstruit
+if [[ "$OPENAI_ENDPOINT_RAW" != *"openai.azure.com"* ]]; then
+  OPENAI_ENDPOINT="https://${OPENAI_NAME}.openai.azure.com/"
+else
+  OPENAI_ENDPOINT="$OPENAI_ENDPOINT_RAW"
+fi
+OPENAI_KEY=$(az cognitiveservices account keys list --name "$OPENAI_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
 
 # ── 7. Azure AI Search ────────────────────────────────────────────────────────
 info "6. Azure AI Search..."
@@ -167,7 +179,10 @@ info "8. Azure AI Content Safety..."
 SAFETY_NAME="${PREFIX}-safety"
 create_cognitive "$SAFETY_NAME" "ContentSafety" "S0"
 SAFETY_ENDPOINT=$(az cognitiveservices account show --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.endpoint" -o tsv 2>/dev/null || echo "")
-SAFETY_KEY=$(az cognitiveservices account keys list      --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+SAFETY_KEY=$(az cognitiveservices account keys list --name "$SAFETY_NAME" --resource-group "$RESOURCE_GROUP" --query "key1" -o tsv 2>/dev/null || echo "")
+if [[ "$SAFETY_ENDPOINT" == *"api.cognitive.microsoft.com"* ]] || [[ -z "$SAFETY_ENDPOINT" ]]; then
+  SAFETY_ENDPOINT="https://${SAFETY_NAME}.cognitiveservices.azure.com/"
+fi
 
 # ── 10. Storage Account ───────────────────────────────────────────────────────
 info "9. Storage Account..."
